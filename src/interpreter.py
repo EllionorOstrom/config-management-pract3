@@ -11,10 +11,10 @@ import sys
 from typing import Callable, Dict, List, Optional
 
 from src.isa import (
-    BY_OPCODE,
     INSTRUCTION_SIZE,
     OP_LOAD_CONST,
     OP_READ,
+    OP_SUB,
     OP_WRITE,
     Instruction,
     IsaError,
@@ -47,6 +47,7 @@ class Machine:
             OP_LOAD_CONST: self.load_const,
             OP_READ: self.read,
             OP_WRITE: self.write,
+            OP_SUB: self.sub,
         }
 
     def pop(self) -> int:
@@ -75,16 +76,23 @@ class Machine:
         value = self.pop()
         self.data[self.cell(instruction.operand)] = value
 
+    def sub(self, _instruction: Instruction) -> None:
+        """SUB: записать (первый - второй) по адресу, снятому со стека.
+
+        Со стека снимаются: первый операнд (вершина), второй операнд
+        и адрес результата.
+        """
+        first = self.pop()
+        second = self.pop()
+        address = self.pop()
+        self.data[self.cell(address)] = first - second
+
     def step(self) -> None:
         """Выполнить одну команду: выборка, декодирование, исполнение."""
         end = self.counter + INSTRUCTION_SIZE
         instruction = decode(self.code[self.counter:end])
         self.counter = end
-        handler = self.handlers.get(instruction.opcode)
-        if handler is None:
-            name = BY_OPCODE[instruction.opcode].mnemonic
-            raise VmError(f"instruction {name} is not implemented")
-        handler(instruction)
+        self.handlers[instruction.opcode](instruction)
 
     def run(self) -> None:
         """Выполнять команды, пока не закончится память команд."""

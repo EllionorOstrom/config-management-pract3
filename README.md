@@ -1,7 +1,7 @@
 # Ассемблер и интерпретатор УВМ (вариант 17)
 
 Практическая работа №3 по дисциплине «Конфигурационное управление».
-Реализовано этапов: 3 из 5.
+Реализовано этапов: 4 из 5.
 
 ## Общее описание
 
@@ -145,6 +145,7 @@ python -m src.interpreter <binary> <dump> --range START END
 
 - класс `Machine` — модель УВМ (память команд, память данных, стек):
   `pop`, `cell`, `load_const`, `read`, `write`,
+  `sub`,
   `step` (одна команда), `run` (весь цикл);
 - `parse_int`, `check_range` — разбор и проверка диапазона адресов;
 - `make_dump`, `save_dump` — дамп памяти в JSON;
@@ -192,3 +193,7 @@ run.bat vm build\copy_array.bin build\copy_array.json --range 100 110
 ```
 
 Демонстрация: `scripts\demo_stage3.bat`.
+
+Вычитание (`programs\sub_demo.asm`): результаты 10−3, 5−5, 3−10 и
+разность значений из памяти сохраняются в ячейки 50–53 и 62.
+Демонстрация: `scripts\demo_stage4.bat`.

@@ -67,6 +67,33 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(machine.data[105:110], [11, 22, 33, 44, 55])
 
 
+class SubTests(unittest.TestCase):
+    """Тесты команды вычитания SUB."""
+
+    def test_first_minus_second(self):
+        """Результат: первый операнд (вершина) минус второй."""
+        machine = run_text(
+            "LOAD_CONST 50\nLOAD_CONST 3\nLOAD_CONST 10\nSUB"
+        )
+        self.assertEqual(machine.data[50], 7)
+        self.assertEqual(machine.stack, [])
+
+    def test_negative_result(self):
+        """Результат может быть отрицательным."""
+        machine = run_text(
+            "LOAD_CONST 50\nLOAD_CONST 10\nLOAD_CONST 3\nSUB"
+        )
+        self.assertEqual(machine.data[50], -7)
+
+    def test_sub_demo_program(self):
+        """Тестовая программа sub_demo.asm даёт ожидаемые значения."""
+        path = os.path.join(PROGRAMS, "sub_demo.asm")
+        with open(path, encoding="utf-8") as handle:
+            machine = run_text(handle.read())
+        self.assertEqual(machine.data[50:54], [7, 0, -7, 999])
+        self.assertEqual(machine.data[60:63], [40, 15, 25])
+
+
 class ErrorTests(unittest.TestCase):
     """Ошибки выполнения."""
 
@@ -80,10 +107,15 @@ class ErrorTests(unittest.TestCase):
         with self.assertRaises(VmError):
             run_text("LOAD_CONST 8000000\nREAD 0")
 
-    def test_sub_not_implemented_yet(self):
-        """На этапе 3 команда SUB ещё не реализована."""
+    def test_sub_needs_three_stack_items(self):
+        """SUB снимает три элемента: при двух в стеке - ошибка."""
         with self.assertRaises(VmError):
-            run_text("LOAD_CONST 1\nLOAD_CONST 2\nLOAD_CONST 3\nSUB")
+            run_text("LOAD_CONST 1\nLOAD_CONST 2\nSUB")
+
+    def test_sub_address_out_of_range(self):
+        """Адрес результата SUB вне памяти данных - ошибка."""
+        with self.assertRaises(VmError):
+            run_text("LOAD_CONST 70000\nLOAD_CONST 1\nLOAD_CONST 2\nSUB")
 
     def test_truncated_program(self):
         """Размер программы должен быть кратен 4 байтам."""
