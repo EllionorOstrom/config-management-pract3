@@ -2,13 +2,17 @@
 
 Каждая команда занимает 4 байта (порядок байт little-endian).
 Младшие 7 бит слова занимает поле A (код операции), далее идёт
-поле B (операнд), ширина которого зависит от команды.
+поле B (операнд), ширина которого зависит от команды. Модуль также
+кодирует команды в байты и декодирует их обратно.
 """
 
 from dataclasses import dataclass
 from typing import Dict, Optional
 
 OPCODE_BITS = 7
+OPCODE_MASK = (1 << OPCODE_BITS) - 1
+INSTRUCTION_SIZE = 4
+BYTE_ORDER = "little"
 OP_LOAD_CONST = 68
 OP_READ = 60
 OP_WRITE = 7
@@ -66,3 +70,25 @@ def validate_operand(spec: CommandSpec, value: int) -> None:
             f"{spec.mnemonic}: operand {value} is out of range "
             f"0..{spec.max_operand}"
         )
+
+
+def encode(instruction: Instruction) -> bytes:
+    """Упаковать команду в 4 байта машинного кода."""
+    word = instruction.opcode | ((instruction.operand or 0) << OPCODE_BITS)
+    return word.to_bytes(INSTRUCTION_SIZE, BYTE_ORDER)
+
+
+def decode(chunk: bytes) -> Instruction:
+    """Распаковать 4 байта машинного кода в команду."""
+    if len(chunk) != INSTRUCTION_SIZE:
+        raise IsaError(f"truncated instruction: {len(chunk)} bytes")
+    word = int.from_bytes(chunk, BYTE_ORDER)
+    opcode = word & OPCODE_MASK
+    spec = BY_OPCODE.get(opcode)
+    if spec is None:
+        raise IsaError(f"unknown opcode: {opcode}")
+    if word >> (OPCODE_BITS + spec.operand_bits):
+        raise IsaError(f"{spec.mnemonic}: reserved bits are not zero")
+    if not spec.has_operand:
+        return Instruction(opcode)
+    return Instruction(opcode, (word >> OPCODE_BITS) & spec.max_operand)

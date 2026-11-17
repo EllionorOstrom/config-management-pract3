@@ -1,13 +1,20 @@
-"""Ассемблер УВМ (этап 1): текст программы -> промежуточное представление.
+"""Ассемблер УВМ: текст программы -> IR -> машинный код.
 
 Формат строки: ``МНЕМОНИКА [аргумент]``. Всё после ``;`` - комментарий.
 """
 
 import argparse
+import os
 import sys
 from typing import List, Optional
 
-from src.isa import BY_MNEMONIC, Instruction, IsaError, validate_operand
+from src.isa import (
+    BY_MNEMONIC,
+    Instruction,
+    IsaError,
+    encode,
+    validate_operand,
+)
 
 COMMENT_MARK = ";"
 EXIT_OK = 0
@@ -58,18 +65,29 @@ def assemble(text: str) -> List[Instruction]:
     return program
 
 
-def format_fields(instruction: Instruction) -> str:
-    """Записать команду как поля и значения, например ``A=68, B=152``."""
-    text = f"A={instruction.opcode}"
-    if instruction.operand is None:
-        return text
-    return f"{text}, B={instruction.operand}"
+def to_machine_code(program: List[Instruction]) -> bytes:
+    """Преобразовать команды промежуточного представления в байты."""
+    return b"".join(encode(instruction) for instruction in program)
+
+
+def format_bytes(instruction: Instruction) -> str:
+    """Записать байты команды, например ``0x44, 0x4C, 0x00, 0x00``."""
+    return ", ".join(f"0x{byte:02X}" for byte in encode(instruction))
 
 
 def read_source(path: str) -> str:
     """Прочитать исходный файл программы."""
     with open(path, encoding="utf-8-sig") as source:
         return source.read()
+
+
+def write_binary(path: str, data: bytes) -> None:
+    """Записать двоичный файл, создав недостающие папки."""
+    folder = os.path.dirname(path)
+    if folder:
+        os.makedirs(folder, exist_ok=True)
+    with open(path, "wb") as output:
+        output.write(data)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -90,13 +108,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         program = assemble(read_source(args.source))
+        code = to_machine_code(program)
+        write_binary(args.output, code)
     except (AsmError, OSError) as error:
         print(f"assembler error: {error}", file=sys.stderr)
         return EXIT_ERROR
-    print(f"Assembled instructions: {len(program)}")
+    print(f"Output size: {len(code)} bytes")
     if args.test:
         for instruction in program:
-            print(format_fields(instruction))
+            print(format_bytes(instruction))
     return EXIT_OK
 
 

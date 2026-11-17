@@ -1,4 +1,4 @@
-"""Тесты ассемблера: примеры из спецификации УВМ и обработка ошибок."""
+"""Тесты ассемблера: разбор языка, ошибки, командная строка."""
 
 import contextlib
 import io
@@ -6,58 +6,49 @@ import os
 import tempfile
 import unittest
 
-from src.assembler import AsmError, assemble, format_fields, main
+from src.assembler import AsmError, assemble, main
 from src.isa import Instruction
 
-
-def fields(source: str) -> list:
-    """Ассемблировать текст и вернуть поля команд строками."""
-    return [format_fields(item) for item in assemble(source)]
-
-
-class SpecTests(unittest.TestCase):
-    """Тесты из спецификации: поля и значения должны совпасть."""
-
-    def test_load_const(self):
-        """Загрузка константы: A=68, B=152."""
-        self.assertEqual(fields("LOAD_CONST 152"), ["A=68, B=152"])
-
-    def test_read(self):
-        """Чтение из памяти: A=60, B=316."""
-        self.assertEqual(fields("READ 316"), ["A=60, B=316"])
-
-    def test_write(self):
-        """Запись в память: A=7, B=715."""
-        self.assertEqual(fields("WRITE 715"), ["A=7, B=715"])
-
-    def test_sub(self):
-        """Вычитание: A=106, поля B нет."""
-        self.assertEqual(fields("SUB"), ["A=106"])
-
-    def test_intermediate_representation(self):
-        """Промежуточное представление - список объектов Instruction."""
-        self.assertEqual(
-            assemble("LOAD_CONST 152\nSUB"),
-            [Instruction(68, 152), Instruction(106)],
-        )
+SPEC_PROGRAM = "LOAD_CONST 152\nREAD 316\nWRITE 715\nSUB\n"
+SPEC_BYTES = bytes(
+    [0x44, 0x4C, 0, 0, 0x3C, 0x9E, 0, 0, 0x87, 0x65, 0x01, 0, 0x6A, 0, 0, 0]
+)
 
 
 class SyntaxTests(unittest.TestCase):
     """Тесты языка ассемблера."""
 
+    def test_intermediate_representation(self):
+        """Промежуточное представление - список объектов Instruction."""
+        self.assertEqual(
+            assemble(SPEC_PROGRAM),
+            [
+                Instruction(68, 152),
+                Instruction(60, 316),
+                Instruction(7, 715),
+                Instruction(106),
+            ],
+        )
+
     def test_comments_and_blank_lines(self):
         """Комментарии и пустые строки пропускаются."""
-        self.assertEqual(fields("; text\n\nSUB ; end\n"), ["A=106"])
+        self.assertEqual(
+            assemble("; text\n\nSUB ; end\n"), [Instruction(106)]
+        )
 
     def test_hex_and_lowercase(self):
         """Шестнадцатеричные числа и строчные мнемоники."""
-        self.assertEqual(fields("load_const 0x10"), ["A=68, B=16"])
+        self.assertEqual(assemble("load_const 0x10"), [Instruction(68, 16)])
 
     def test_boundary_values(self):
         """Наибольшие значения операндов принимаются."""
         self.assertEqual(
-            fields("LOAD_CONST 8388607\nREAD 4095\nWRITE 4194303"),
-            ["A=68, B=8388607", "A=60, B=4095", "A=7, B=4194303"],
+            assemble("LOAD_CONST 8388607\nREAD 4095\nWRITE 4194303"),
+            [
+                Instruction(68, 8388607),
+                Instruction(60, 4095),
+                Instruction(7, 4194303),
+            ],
         )
 
 
@@ -102,22 +93,45 @@ class CliTests(unittest.TestCase):
     """Тесты командной строки."""
 
     def run_main(self, text: str, *extra: str):
-        """Запустить main на временном файле, вернуть код и вывод."""
+        """Запустить main; вернуть код, вывод и содержимое файла."""
         with tempfile.TemporaryDirectory() as folder:
             source = os.path.join(folder, "p.asm")
+            target = os.path.join(folder, "sub", "p.bin")
             with open(source, "w", encoding="utf-8") as handle:
                 handle.write(text)
             buffer = io.StringIO()
             with contextlib.redirect_stdout(buffer):
-                code = main([source, os.path.join(folder, "p.bin"), *extra])
-        return code, buffer.getvalue()
+                code = main([source, target, *extra])
+            data = b""
+            if os.path.exists(target):
+                with open(target, "rb") as handle:
+                    data = handle.read()
+        return code, buffer.getvalue(), data
 
-    def test_test_mode_prints_fields(self):
-        """В режиме тестирования выводятся поля и значения."""
-        code, output = self.run_main("LOAD_CONST 152\nSUB", "--test")
+    def test_binary_file_matches_spec(self):
+        """Двоичный файл совпадает с байтами из спецификации."""
+        code, _output, data = self.run_main(SPEC_PROGRAM)
         self.assertEqual(code, 0)
-        self.assertIn("A=68, B=152", output)
-        self.assertIn("A=106", output)
+        self.assertEqual(data, SPEC_BYTES)
+
+    def test_size_is_printed(self):
+        """Размер файла в байтах выводится на экран."""
+        _code, output, _data = self.run_main(SPEC_PROGRAM)
+        self.assertIn("Output size: 16 bytes", output)
+
+    def test_test_mode_prints_bytes(self):
+        """В режиме тестирования выводятся байты команд."""
+        _code, output, _data = self.run_main(SPEC_PROGRAM, "--test")
+        self.assertIn("0x44, 0x4C, 0x00, 0x00", output)
+        self.assertIn("0x6A, 0x00, 0x00, 0x00", output)
+
+    def test_error_gives_exit_code_1(self):
+        """Ошибка в программе даёт код возврата 1, файл не создаётся."""
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            code, _output, data = self.run_main("FOO 1")
+        self.assertEqual(code, 1)
+        self.assertEqual(data, b"")
 
     def test_missing_source(self):
         """Отсутствующий файл даёт код возврата 1."""
